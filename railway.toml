@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node /wrapper/src/server.js"
+startCommand = "su -s /bin/sh nobody -c \"node /app/dist/server/src/index.js\""
 healthcheckPath = "/setup/healthz"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
