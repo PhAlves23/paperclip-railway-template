@@ -34,7 +34,7 @@ https://railway.com/deploy/KJZc89?referralCode=uXzB-u&utm_medium=integration&utm
 2. Go to **`/setup`** (e.g. `https://your-app.up.railway.app/setup`).
 3. (Optional) If you want AI agents immediately, complete Step 1 on setup:
    - set `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` in Railway variables
-   - run Codex login from setup (Claude uses `ANTHROPIC_API_KEY` directly)
+   - run Codex login and Claude login from setup (both require one-time authentication)
 4. Click **“Generate admin invite URL”**. The page will show a one-time invite link.
 5. Open that link in your browser and complete sign-up. That account is the first admin.
 6. From then on, use the app at **`/`** — log in with that admin (or with users you invite later).
@@ -62,7 +62,7 @@ Optional (for AI agents):
 
 - **`OPENAI_API_KEY`** — If set, the wrapper runs Codex login at startup so agents using the Codex adapter work. You can also run Codex login from the setup page. Without it, the app and dashboard work; agents that use Codex will fail until the key is set and login is run.
 
-- **`ANTHROPIC_API_KEY`** — Used by the Claude adapter. Optional; add when you want Claude-based agents.
+- **`ANTHROPIC_API_KEY`** — If set, the wrapper runs Claude login at startup so agents using the Claude adapter work. You can also run Claude login from the setup page. Without it, the app and dashboard work; agents that use Claude will fail until the key is set and login is run.
 
 ## Networking and storage (Railway)
 

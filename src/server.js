@@ -126,13 +126,15 @@ function setupHtml() {
       <div class="step">
         <div class="step-num">Step 1 — AI adapters (optional)</div>
         <div class="step-title">Codex &amp; Claude (OpenAI &amp; Anthropic)</div>
-        <p class="muted" style="margin:0 0 10px 0; font-size:13px;">Only needed if you want agents to run. Set <code style="background:#1a1a1a; padding:2px 6px; border-radius:4px;">OPENAI_API_KEY</code> and/or <code style="background:#1a1a1a; padding:2px 6px; border-radius:4px;">ANTHROPIC_API_KEY</code> in Railway variables. Codex requires a one-time login below; Claude uses the env key automatically. You can skip this and add keys later — the app works without them; agents will fail until keys are set.</p>
+        <p class="muted" style="margin:0 0 10px 0; font-size:13px;">Only needed if you want agents to run. Set <code style="background:#1a1a1a; padding:2px 6px; border-radius:4px;">OPENAI_API_KEY</code> and/or <code style="background:#1a1a1a; padding:2px 6px; border-radius:4px;">ANTHROPIC_API_KEY</code> in Railway variables. Both require a one-time login below. You can skip this and add keys later — the app works without them; agents will fail until keys are set.</p>
         <div class="adapter-statuses">
           <div class="adapter-status status-pending" id="codexStatusWrap"><span class="status-check" id="codexCheck">○</span><span id="codexStatus">Codex: checking...</span></div>
           <div class="adapter-status status-pending" id="claudeStatusWrap"><span class="status-check" id="claudeCheck">○</span><span id="claudeStatus">Claude: checking...</span></div>
         </div>
         <div class="row" id="codexButtonRow" style="margin-bottom:8px;"><button id="codexLogin" type="button">Run Codex login</button></div>
         <pre id="codexOutput" style="margin-top:10px; display:none;">-</pre>
+        <div class="row" id="claudeButtonRow" style="margin-bottom:8px;"><button id="claudeLogin" type="button">Run Claude login</button></div>
+        <pre id="claudeOutput" style="margin-top:10px; display:none;">-</pre>
       </div>
 
       <div class="step">
@@ -165,6 +167,9 @@ function setupHtml() {
       const codexStatusWrap = document.getElementById("codexStatusWrap");
       const codexCheck = document.getElementById("codexCheck");
       const codexStatusEl = document.getElementById("codexStatus");
+      const claudeBtn = document.getElementById("claudeLogin");
+      const claudeButtonRow = document.getElementById("claudeButtonRow");
+      const claudeOutput = document.getElementById("claudeOutput");
       const claudeStatusWrap = document.getElementById("claudeStatusWrap");
       const claudeCheck = document.getElementById("claudeCheck");
       const claudeStatusEl = document.getElementById("claudeStatus");
@@ -200,14 +205,20 @@ function setupHtml() {
               codexStatusEl.textContent = "Codex: Set OPENAI_API_KEY in Railway, then run login";
             }
           }
-          if (cl.anthropicApiKeySet) {
+          if (cl.claudeAuthenticated) {
             claudeStatusWrap.className = "adapter-status status-ok";
             claudeCheck.textContent = "✓";
-            claudeStatusEl.textContent = "Claude: API key set";
+            claudeStatusEl.textContent = "Claude: authenticated";
+            claudeButtonRow.style.display = "none";
           } else {
             claudeStatusWrap.className = "adapter-status status-pending";
             claudeCheck.textContent = "○";
-            claudeStatusEl.textContent = "Claude: Set ANTHROPIC_API_KEY in Railway for Claude-based agents";
+            claudeButtonRow.style.display = "";
+            if (cl.anthropicApiKeySet) {
+              claudeStatusEl.textContent = "Claude: Not authenticated — run login below";
+            } else {
+              claudeStatusEl.textContent = "Claude: Set ANTHROPIC_API_KEY in Railway, then run login";
+            }
           }
         } catch {
           codexStatusWrap.className = "adapter-status status-pending";
@@ -253,6 +264,22 @@ function setupHtml() {
           codexOutput.textContent = String(err);
         } finally {
           codexBtn.disabled = false;
+        }
+      };
+
+      claudeBtn.onclick = async () => {
+        claudeBtn.disabled = true;
+        claudeOutput.style.display = "block";
+        claudeOutput.textContent = "Running claude login...";
+        try {
+          const res = await fetch("/setup/api/claude-login", { method: "POST" });
+          const j = await res.json();
+          claudeOutput.textContent = j.output || JSON.stringify(j, null, 2);
+          await refreshAiStatus();
+        } catch (err) {
+          claudeOutput.textContent = String(err);
+        } finally {
+          claudeBtn.disabled = false;
         }
       };
 
@@ -332,6 +359,36 @@ function runCodexLogin() {
   });
 }
 
+function runClaudeLogin() {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    return Promise.resolve({
+      ok: false,
+      output: "ANTHROPIC_API_KEY is not set. Add it in Railway service variables, then run this again.",
+    });
+  }
+  return new Promise((resolve) => {
+    const child = spawn("claude", ["login", "--with-api-key"], {
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => { out += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { err += chunk.toString(); });
+    child.on("close", (code) => {
+      const combined = [out.trim(), err.trim()].filter(Boolean).join("\n") || "(no output)";
+      resolve({ ok: code === 0, output: combined });
+    });
+    child.on("error", (e) => {
+      resolve({ ok: false, output: `Failed to run claude: ${e.message}` });
+    });
+    child.stdin.write(apiKey, "utf8", () => {
+      child.stdin.end();
+    });
+  });
+}
+
 const app = express();
 const proxy = httpProxy.createProxyServer({
   target: PAPERCLIP_TARGET,
@@ -383,8 +440,11 @@ function getCodexStatus() {
 }
 
 function getClaudeStatus() {
+  const claudeHome = process.env.CLAUDE_HOME || path.join(process.env.HOME || "/home/node", ".claude");
+  const authPath = path.join(claudeHome, "auth.json");
+  const claudeAuthenticated = fs.existsSync(authPath);
   const anthropicApiKeySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
-  return { anthropicApiKeySet };
+  return { claudeAuthenticated, anthropicApiKeySet };
 }
 
 app.get("/setup/api/codex-status", (_req, res) => {
@@ -397,6 +457,11 @@ app.get("/setup/api/ai-status", (_req, res) => {
 
 app.post("/setup/api/codex-login", async (_req, res) => {
   const result = await runCodexLogin();
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+app.post("/setup/api/claude-login", async (_req, res) => {
+  const result = await runClaudeLogin();
   res.status(result.ok ? 200 : 400).json(result);
 });
 
@@ -434,6 +499,16 @@ if (process.env.OPENAI_API_KEY?.trim()) {
       else console.warn("[wrapper] Codex login failed:", r.output);
     })
     .catch((e) => console.warn("[wrapper] Codex login error:", e.message));
+}
+
+// If ANTHROPIC_API_KEY is set, authenticate Claude at startup so agents work without visiting /setup
+if (process.env.ANTHROPIC_API_KEY?.trim()) {
+  runClaudeLogin()
+    .then((r) => {
+      if (r.ok) console.log("[wrapper] Claude login succeeded (ANTHROPIC_API_KEY)");
+      else console.warn("[wrapper] Claude login failed:", r.output);
+    })
+    .catch((e) => console.warn("[wrapper] Claude login error:", e.message));
 }
 
 const shutdown = () => {
